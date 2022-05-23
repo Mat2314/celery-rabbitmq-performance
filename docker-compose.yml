@@ -1,0 +1,61 @@
+version: "3"
+   
+services:
+  db:
+    image: postgres:12
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - private
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    restart: on-failure
+
+  api:
+    build: 
+        dockerfile: Django.Dockerfile
+        context: .
+    command: bash -c "python manage.py migrate && gunicorn performance_project.wsgi:application --bind 0.0.0.0:8000 --timeout 90 --reload"
+    volumes:
+      - ./api:/code
+    networks:
+      - private
+    depends_on:
+      - db
+    restart: on-failure
+
+  rabbitmq:
+    image: rabbitmq:3.10.1-management-alpine
+    hostname: rabbitmq
+    networks:
+      - private
+    restart: on-failure
+    ports: 
+      - "15672:15672"
+
+  celeryworker:
+    build: 
+        dockerfile: Celery.Dockerfile
+        context: .
+    command: celery -A performance_project worker --loglevel=info --max-tasks-per-child=1
+    volumes:
+      - ./api:/code
+    networks:
+      - private
+    environment:
+      - CELERY_BROKER=amqp://guest:guest@rabbitmq:5672
+      - DJANGO_SETTINGS_MODULE=performance_project.settings
+    restart: on-failure
+    deploy:
+      mode: replicated
+      replicas: 5
+    depends_on:
+      - rabbitmq
+
+networks:
+  private:
+
+volumes:
+  postgres_data:
